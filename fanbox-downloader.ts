@@ -30,11 +30,6 @@ class FanboxDownloadUtils extends DownloadUtils {
 		const request = new XMLHttpRequest();
 		request.open('GET', url, false);
 		request.withCredentials = true;
-		const csrfToken = getFanboxCsrfToken();
-		if (csrfToken) {
-			request.setRequestHeader('X-CSRF-Token', csrfToken);
-		}
-		request.setRequestHeader('Accept', 'application/json, text/plain, */*');
 		request.send(null);
 		let result: unknown;
 		try {
