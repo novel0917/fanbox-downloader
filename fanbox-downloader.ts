@@ -1,4 +1,4 @@
-import { DownloadHelper, DownloadObject, DownloadUtils } from 'download-helper/download-helper';
+import { DownloadHelper, DownloadObject, DownloadUtils } from 'download-helper';
 
 /**
  * ダウンローダーの管理クラス
@@ -120,6 +120,11 @@ export async function main() {
  * @param creatorId ユーザーID
  * @param postId 投稿ID
  */
+function toArray<T>(value: T | T[] | undefined | null): T[] {
+	if (value === undefined || value === null) return [];
+	return Array.isArray(value) ? value : [value];
+}
+
 async function searchBy(
 	creatorId: string | undefined,
 	postId: string | undefined,
@@ -128,17 +133,18 @@ async function searchBy(
 		alert('しらないURL');
 		return;
 	}
-	const plans = DownloadManage.utils.httpGetAs<Plans>(
-		`https://api.fanbox.cc/plan.listCreator?creatorId=${creatorId}`,
-	).body;
+	const plans = toArray(
+		DownloadManage.utils.httpGetAs<Plans>(
+			`https://api.fanbox.cc/plan.listCreator?creatorId=${creatorId}`,
+		).body,
+	);
 	const feeMapper = new Map<number, string>();
-	plans?.forEach((plan) => feeMapper.set(plan.fee, plan.title));
+	plans.forEach((plan) => feeMapper.set(plan.fee, plan.title));
 	const downloadSettings = new DownloadManage(creatorId, feeMapper);
 	downloadSettings.downloadObject.setUrl(`https://www.fanbox.cc/@${creatorId}`);
-	const definedTags =
-		DownloadManage.utils
-			.httpGetAs<Tags>(`https://api.fanbox.cc/tag.getFeatured?creatorId=${creatorId}`)
-			.body?.map((tag) => tag.tag) ?? [];
+	const definedTags = toArray(
+		DownloadManage.utils.httpGetAs<Tags>(`https://api.fanbox.cc/tag.getFeatured?creatorId=${creatorId}`).body,
+	).map((tag) => tag.tag);
 	downloadSettings.addTags(...definedTags);
 	if (postId) addByPostInfo(downloadSettings, getPostInfoById(postId));
 	else await getItemsById(downloadSettings);
@@ -160,9 +166,11 @@ async function getItemsById(downloadManage: DownloadManage) {
 			downloadManage.setLimit(limit);
 		}
 	}
-	const urls = DownloadManage.utils.httpGetAs<{ body: string[] }>(
-		`https://api.fanbox.cc/post.paginateCreator?creatorId=${downloadManage.userId}`,
-	).body;
+	const urls = toArray(
+		DownloadManage.utils.httpGetAs<{ body: string[] }>(
+			`https://api.fanbox.cc/post.paginateCreator?creatorId=${downloadManage.userId}`,
+		).body,
+	);
 	for (let i = 0; i < urls.length; i++) {
 		console.log(`${i + 1}回目`);
 		await addByPostListUrl(downloadManage, urls[i]);
@@ -176,7 +184,7 @@ async function getItemsById(downloadManage: DownloadManage) {
  * @param url
  */
 async function addByPostListUrl(downloadManage: DownloadManage, url: string): Promise<void> {
-	const postList = DownloadManage.utils.httpGetAs<{ body: PostInfo[] }>(url).body;
+	const postList = toArray(DownloadManage.utils.httpGetAs<{ body: PostInfo[] }>(url).body);
 	console.log(`投稿の数:${postList.length}`);
 	for (const post of postList) {
 		if (downloadManage.isLimitValid()) {
@@ -233,7 +241,7 @@ function addByPostInfo(downloadManage: DownloadManage, postInfo: PostInfo | unde
 	let parsedText: string;
 	switch (postInfo.type) {
 		case 'image': {
-			const images = postInfo.body.images.map((it) =>
+			const images = toArray(postInfo.body.images).map((it) =>
 				postObject.addFile(postName, it.extension, it.originalUrl),
 			);
 			const imageTags = images.map((it) => postObject.getImageLinkTag(it)).join('<br>\n');
@@ -246,7 +254,7 @@ function addByPostInfo(downloadManage: DownloadManage, postInfo: PostInfo | unde
 			break;
 		}
 		case 'file': {
-			const files = postInfo.body.files.map((it) =>
+			const files = toArray(postInfo.body.files).map((it) =>
 				postObject.addFile(it.name, it.extension, it.url),
 			);
 			const fileTags = files.map((it) => postObject.getAutoAssignedLinkTag(it)).join('<br>\n');
