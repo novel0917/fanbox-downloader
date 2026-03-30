@@ -66,6 +66,11 @@ class FanboxDownloadUtils extends DownloadUtils {
 		return result as T;
 	}
 
+	toQuoted(value: string | null | undefined): string {
+		const text = value == null ? '' : String(value);
+		return `'${text.replaceAll("'", "\\'")}'`;
+	}
+
 	async fetchWithLimit(
 		{ url, name }: { url: string; name: string },
 		limit: number,
