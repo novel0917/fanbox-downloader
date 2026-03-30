@@ -51,7 +51,7 @@ class FanboxDownloadUtils extends DownloadUtils {
 	): Promise<Blob | null> {
 		if (limit < 0) return null;
 		try {
-			const blob = await fetch(url, { credentials: 'include' })
+			const blob = await fetch(url)
 				.catch((e) => {
 					throw new Error(String(e));
 				})
