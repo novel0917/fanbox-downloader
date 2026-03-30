@@ -44,38 +44,6 @@ class FanboxDownloadUtils extends DownloadUtils {
 		}
 		return result as T;
 	}
-
-	async httpGetAsAsync<T = unknown>(url: string): Promise<T> {
-		const response = await fetch(url, {
-			method: 'GET',
-			mode: 'cors',
-			credentials: 'include',
-			headers: {
-				Accept: 'application/json',
-			},
-		});
-		let text: string;
-		try {
-			text = await response.text();
-		} catch {
-			throw new Error(`Failed to read response from ${url}`);
-		}
-		let result: unknown;
-		try {
-			result = JSON.parse(text);
-		} catch {
-			throw new Error(`Fanbox API returned non-JSON response for ${url}`);
-		}
-		if (!response.ok) {
-			throw new Error(`Fanbox API error ${response.status}: ${JSON.stringify(result)}`);
-		}
-		if (typeof result === 'object' && result !== null && 'error' in result) {
-			throw new Error(
-				`Fanbox API error: ${JSON.stringify((result as Record<string, unknown>).error)}`,
-			);
-		}
-		return result as T;
-	}
 }
 
 /**
@@ -218,10 +186,8 @@ async function searchBy(
 		return;
 	}
 	const plans = toArray(
-		(
-			await DownloadManage.utils.httpGetAsAsync<Plans>(
-				`${getFanboxApiBaseUrl()}/plan.listCreator?creatorId=${creatorId}`,
-			)
+		DownloadManage.utils.httpGetAs<Plans>(
+			`${getFanboxApiBaseUrl()}/plan.listCreator?creatorId=${creatorId}`,
 		).body,
 	);
 	const feeMapper = new Map<number, string>();
@@ -229,14 +195,12 @@ async function searchBy(
 	const downloadSettings = new DownloadManage(creatorId, feeMapper);
 	downloadSettings.downloadObject.setUrl(`https://www.fanbox.cc/@${creatorId}`);
 	const definedTags = toArray(
-		(
-			await DownloadManage.utils.httpGetAsAsync<Tags>(
-				`${getFanboxApiBaseUrl()}/tag.getFeatured?creatorId=${creatorId}`,
-			)
+		DownloadManage.utils.httpGetAs<Tags>(
+			`${getFanboxApiBaseUrl()}/tag.getFeatured?creatorId=${creatorId}`,
 		).body,
 	).map((tag) => tag.tag);
 	downloadSettings.addTags(...definedTags);
-	if (postId) addByPostInfo(downloadSettings, await getPostInfoById(postId));
+	if (postId) addByPostInfo(downloadSettings, getPostInfoById(postId));
 	else await getItemsById(downloadSettings);
 	downloadSettings.applyTags();
 	return downloadSettings.downloadObject;
@@ -257,10 +221,8 @@ async function getItemsById(downloadManage: DownloadManage) {
 		}
 	}
 	const urls = toArray(
-		(
-			await DownloadManage.utils.httpGetAsAsync<{ body: string[] }>(
-				`${getFanboxApiBaseUrl()}/post.paginateCreator?creatorId=${downloadManage.userId}`,
-			)
+		DownloadManage.utils.httpGetAs<{ body: string[] }>(
+			`${getFanboxApiBaseUrl()}/post.paginateCreator?creatorId=${downloadManage.userId}`,
 		).body,
 	);
 	for (let i = 0; i < urls.length; i++) {
@@ -276,9 +238,7 @@ async function getItemsById(downloadManage: DownloadManage) {
  * @param url
  */
 async function addByPostListUrl(downloadManage: DownloadManage, url: string): Promise<void> {
-	const postList = toArray(
-		(await DownloadManage.utils.httpGetAsAsync<{ body: PostInfo[] }>(url)).body,
-	);
+	const postList = toArray(DownloadManage.utils.httpGetAs<{ body: PostInfo[] }>(url).body);
 	console.log(`投稿の数:${postList.length}`);
 	for (const post of postList) {
 		if (downloadManage.isLimitValid()) {
@@ -286,7 +246,7 @@ async function addByPostListUrl(downloadManage: DownloadManage, url: string): Pr
 				addByPostInfo(downloadManage, post);
 			} else if (!post.isRestricted) {
 				await DownloadManage.utils.sleep(100);
-				addByPostInfo(downloadManage, await getPostInfoById(post.id));
+				addByPostInfo(downloadManage, getPostInfoById(post.id));
 			}
 		} else break;
 	}
@@ -296,11 +256,9 @@ async function addByPostListUrl(downloadManage: DownloadManage, url: string): Pr
  * 投稿IDからpostInfoを得る
  * @param postId 投稿ID
  */
-async function getPostInfoById(postId: string): Promise<PostInfo | undefined> {
-	return (
-		await DownloadManage.utils.httpGetAsAsync<{ body?: PostInfo }>(
-			`${getFanboxApiBaseUrl()}/post.info?postId=${postId}`,
-		)
+function getPostInfoById(postId: string): PostInfo | undefined {
+	return DownloadManage.utils.httpGetAs<{ body?: PostInfo }>(
+		`${getFanboxApiBaseUrl()}/post.info?postId=${postId}`,
 	).body;
 }
 
