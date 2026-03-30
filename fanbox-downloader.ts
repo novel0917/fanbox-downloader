@@ -41,30 +41,36 @@ function normalizeTags(...tags: Array<string | null | undefined>): string[] {
 }
 
 class FanboxDownloadUtils extends DownloadUtils {
-	httpGetAs<T = unknown>(url: string): T {
-		const request = new XMLHttpRequest();
-		request.open('GET', url, false);
-		request.withCredentials = true;
-		for (const [name, value] of Object.entries(getFanboxRequestHeaders())) {
-			request.setRequestHeader(name, value);
+	async asyncHttpGetAs<T = unknown>(url: string, retries: number = 3): Promise<T> {
+		for (let attempt = 0; attempt < retries; attempt++) {
+			try {
+				const response = await fetch(url, {
+					method: 'GET',
+					credentials: 'include',
+					headers: getFanboxRequestHeaders(),
+				});
+				if (response.status === 429) {
+					console.log(`Rate limited, retrying in 5 seconds... (${attempt + 1}/${retries})`);
+					await this.sleep(5000);
+					continue;
+				}
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+				}
+				const result = await response.json();
+				if (typeof result === 'object' && result !== null && 'error' in result) {
+					throw new Error(`Fanbox API error: ${JSON.stringify((result as Record<string, unknown>).error)}`);
+				}
+				return result as T;
+			} catch (error) {
+				console.error(`Request failed (attempt ${attempt + 1}/${retries}): ${url}`, error);
+				if (attempt === retries - 1) throw error;
+				await this.sleep(2000);
+			}
 		}
-		request.send(null);
-		let result: unknown;
-		try {
-			result = JSON.parse(request.responseText);
-		} catch {
-			throw new Error(`Fanbox API returned non-JSON response for ${url}`);
-		}
-		if (request.status >= 400) {
-			throw new Error(`Fanbox API error ${request.status}: ${JSON.stringify(result)}`);
-		}
-		if (typeof result === 'object' && result !== null && 'error' in result) {
-			throw new Error(
-				`Fanbox API error: ${JSON.stringify((result as Record<string, unknown>).error)}`,
-			);
-		}
-		return result as T;
+		throw new Error('All retries failed');
 	}
+}
 
 	toQuoted(value: string | null | undefined): string {
 		const text = value == null ? '' : String(value);
@@ -96,7 +102,7 @@ class FanboxDownloadUtils extends DownloadUtils {
  */
 class DownloadManage {
 	/** ダウンロード用ユーティリティ 何かあれば適当にオーバライドする */
-	public static readonly utils = new FanboxDownloadUtils();
+	public static readonly utils: FanboxDownloadUtils = new FanboxDownloadUtils();
 
 	/** 投稿情報の出力をJSONにする（基本true, txtにする場合はfalseに変える）*/
 	public static readonly isExportJson = true;
@@ -231,23 +237,23 @@ async function searchBy(
 		return;
 	}
 	const plans = toArray(
-		DownloadManage.utils.httpGetAs<Plans>(
+		(await DownloadManage.utils.asyncHttpGetAs<Plans>(
 			`${getFanboxApiBaseUrl()}/plan.listCreator?creatorId=${creatorId}`,
-		).body,
+		)).body,
 	);
 	const feeMapper = new Map<number, string>();
 	plans.forEach((plan) => feeMapper.set(plan.fee, plan.title));
 	const downloadSettings = new DownloadManage(creatorId, feeMapper);
 	downloadSettings.downloadObject.setUrl(`https://www.fanbox.cc/@${creatorId}`);
 	const definedTags = toArray(
-		DownloadManage.utils.httpGetAs<Tags>(
+		(await DownloadManage.utils.asyncHttpGetAs<Tags>(
 			`${getFanboxApiBaseUrl()}/tag.getFeatured?creatorId=${creatorId}`,
-		).body,
+		)).body,
 	)
 		.map((tag) => tag.tag)
 		.filter((tag): tag is string => typeof tag === 'string');
 	downloadSettings.addTags(...definedTags);
-	if (postId) addByPostInfo(downloadSettings, getPostInfoById(postId));
+	if (postId) addByPostInfo(downloadSettings, await getPostInfoById(postId));
 	else await getItemsById(downloadSettings);
 	downloadSettings.applyTags();
 	return downloadSettings.downloadObject;
@@ -268,14 +274,14 @@ async function getItemsById(downloadManage: DownloadManage) {
 		}
 	}
 	const urls = toArray(
-		DownloadManage.utils.httpGetAs<{ body: string[] }>(
+		(await DownloadManage.utils.asyncHttpGetAs<{ body: string[] }>(
 			`${getFanboxApiBaseUrl()}/post.paginateCreator?creatorId=${downloadManage.userId}`,
-		).body,
+		)).body,
 	);
 	for (let i = 0; i < urls.length; i++) {
 		console.log(`${i + 1}回目`);
 		await addByPostListUrl(downloadManage, urls[i]);
-		await DownloadManage.utils.sleep(100);
+		await DownloadManage.utils.sleep(2000);
 	}
 }
 
@@ -285,15 +291,16 @@ async function getItemsById(downloadManage: DownloadManage) {
  * @param url
  */
 async function addByPostListUrl(downloadManage: DownloadManage, url: string): Promise<void> {
-	const postList = toArray(DownloadManage.utils.httpGetAs<{ body: PostInfo[] }>(url).body);
+	const postList = toArray((await DownloadManage.utils.asyncHttpGetAs<{ body: PostInfo[] }>(url)).body);
 	console.log(`投稿の数:${postList.length}`);
 	for (const post of postList) {
 		if (downloadManage.isLimitValid()) {
 			if (post.body) {
 				addByPostInfo(downloadManage, post);
 			} else if (!post.isRestricted) {
-				await DownloadManage.utils.sleep(100);
-				addByPostInfo(downloadManage, getPostInfoById(post.id));
+				await DownloadManage.utils.sleep(2000);
+				const postInfo = await getPostInfoById(post.id);
+				addByPostInfo(downloadManage, postInfo);
 			}
 		} else break;
 	}
@@ -303,10 +310,10 @@ async function addByPostListUrl(downloadManage: DownloadManage, url: string): Pr
  * 投稿IDからpostInfoを得る
  * @param postId 投稿ID
  */
-function getPostInfoById(postId: string): PostInfo | undefined {
-	return DownloadManage.utils.httpGetAs<{ body?: PostInfo }>(
+async function getPostInfoById(postId: string): Promise<PostInfo | undefined> {
+	return (await DownloadManage.utils.asyncHttpGetAs<{ body?: PostInfo }>(
 		`${getFanboxApiBaseUrl()}/post.info?postId=${postId}`,
-	).body;
+	)).body;
 }
 
 /**
