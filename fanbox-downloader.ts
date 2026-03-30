@@ -70,7 +70,6 @@ class FanboxDownloadUtils extends DownloadUtils {
 		}
 		throw new Error('All retries failed');
 	}
-}
 
 	toQuoted(value: string | null | undefined): string {
 		const text = value == null ? '' : String(value);
