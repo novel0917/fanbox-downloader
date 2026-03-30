@@ -21,30 +21,12 @@ function getFanboxApiBaseUrl(): string {
 	return getFanboxMetadata()?.apiUrl ?? DEFAULT_FANBOX_API_URL;
 }
 
-function getFanboxCsrfToken(): string | null {
-	return getFanboxMetadata()?.csrfToken ?? null;
-}
-
-function getFanboxRequestHeaders(): Record<string, string> {
-	const headers: Record<string, string> = {
-		Accept: 'application/json',
-	};
-	const csrfToken = getFanboxCsrfToken();
-	if (csrfToken) {
-		headers['x-csrf-token'] = csrfToken;
-	}
-	return headers;
-}
-
 class FanboxDownloadUtils extends DownloadUtils {
 	httpGetAs<T = unknown>(url: string): T {
 		const request = new XMLHttpRequest();
 		request.open('GET', url, false);
 		request.withCredentials = true;
-		const headers = getFanboxRequestHeaders();
-		Object.entries(headers).forEach(([name, value]) => {
-			request.setRequestHeader(name, value);
-		});
+		request.setRequestHeader('Accept', 'application/json');
 		request.send(null);
 		let result: unknown;
 		try {
@@ -68,7 +50,9 @@ class FanboxDownloadUtils extends DownloadUtils {
 			method: 'GET',
 			mode: 'cors',
 			credentials: 'include',
-			headers: getFanboxRequestHeaders(),
+			headers: {
+				Accept: 'application/json',
+			},
 		});
 		let text: string;
 		try {
