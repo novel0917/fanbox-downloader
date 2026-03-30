@@ -44,6 +44,25 @@ class FanboxDownloadUtils extends DownloadUtils {
 		}
 		return result as T;
 	}
+
+	async fetchWithLimit(
+		{ url, name }: { url: string; name: string },
+		limit: number,
+	): Promise<Blob | null> {
+		if (limit < 0) return null;
+		try {
+			const blob = await fetch(url, { credentials: 'include' })
+				.catch((e) => {
+					throw new Error(String(e));
+				})
+				.then((r) => (r.ok ? r.blob() : null));
+			return blob ? blob : await this.fetchWithLimit({ url, name }, limit - 1);
+		} catch (_) {
+			console.error(`通信エラー: ${name}, ${url}`);
+			await this.sleep(1000);
+			return await this.fetchWithLimit({ url, name }, limit - 1);
+		}
+	}
 }
 
 /**
