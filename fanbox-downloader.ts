@@ -21,15 +21,54 @@ function getFanboxApiBaseUrl(): string {
 	return getFanboxMetadata()?.apiUrl ?? DEFAULT_FANBOX_API_URL;
 }
 
+function getFanboxCsrfToken(): string | null {
+	return getFanboxMetadata()?.csrfToken ?? null;
+}
+
+function getFanboxRequestHeaders(): Record<string, string> {
+	const headers: Record<string, string> = {
+		Accept: 'application/json',
+	};
+	const csrfToken = getFanboxCsrfToken();
+	if (csrfToken) {
+		headers['x-csrf-token'] = csrfToken;
+	}
+	return headers;
+}
+
 class FanboxDownloadUtils extends DownloadUtils {
+	httpGetAs<T = unknown>(url: string): T {
+		const request = new XMLHttpRequest();
+		request.open('GET', url, false);
+		request.withCredentials = true;
+		const headers = getFanboxRequestHeaders();
+		Object.entries(headers).forEach(([name, value]) => {
+			request.setRequestHeader(name, value);
+		});
+		request.send(null);
+		let result: unknown;
+		try {
+			result = JSON.parse(request.responseText);
+		} catch {
+			throw new Error(`Fanbox API returned non-JSON response for ${url}`);
+		}
+		if (request.status >= 400) {
+			throw new Error(`Fanbox API error ${request.status}: ${JSON.stringify(result)}`);
+		}
+		if (typeof result === 'object' && result !== null && 'error' in result) {
+			throw new Error(
+				`Fanbox API error: ${JSON.stringify((result as Record<string, unknown>).error)}`,
+			);
+		}
+		return result as T;
+	}
+
 	async httpGetAsAsync<T = unknown>(url: string): Promise<T> {
 		const response = await fetch(url, {
 			method: 'GET',
 			mode: 'cors',
 			credentials: 'include',
-			headers: {
-				Accept: 'application/json',
-			},
+			headers: getFanboxRequestHeaders(),
 		});
 		let text: string;
 		try {
