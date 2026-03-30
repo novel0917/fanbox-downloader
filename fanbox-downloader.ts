@@ -36,6 +36,10 @@ function getFanboxRequestHeaders(): Record<string, string> {
 	return headers;
 }
 
+function normalizeTags(...tags: Array<string | null | undefined>): string[] {
+	return tags.filter((tag): tag is string => typeof tag === 'string' && tag.trim() !== '');
+}
+
 class FanboxDownloadUtils extends DownloadUtils {
 	httpGetAs<T = unknown>(url: string): T {
 		const request = new XMLHttpRequest();
@@ -112,8 +116,8 @@ class DownloadManage {
 		this.fees = [...new Set([...this.fees, fee])];
 	}
 
-	addTags(...tags: string[]) {
-		this.tags = [...new Set([...this.tags, ...tags])];
+	addTags(...tags: Array<string | null | undefined>) {
+		this.tags = [...new Set([...this.tags, ...normalizeTags(...tags)])];
 	}
 
 	applyTags() {
@@ -234,7 +238,9 @@ async function searchBy(
 		DownloadManage.utils.httpGetAs<Tags>(
 			`${getFanboxApiBaseUrl()}/tag.getFeatured?creatorId=${creatorId}`,
 		).body,
-	).map((tag) => tag.tag);
+	)
+		.map((tag) => tag.tag)
+		.filter((tag): tag is string => typeof tag === 'string');
 	downloadSettings.addTags(...definedTags);
 	if (postId) addByPostInfo(downloadSettings, getPostInfoById(postId));
 	else await getItemsById(downloadSettings);
@@ -315,9 +321,10 @@ function addByPostInfo(downloadManage: DownloadManage, postInfo: PostInfo | unde
 	}
 	const postName = postInfo.title;
 	const postObject = downloadManage.downloadObject.addPost(postName);
-	postObject.setTags([downloadManage.getTagByFee(postInfo.feeRequired), ...postInfo.tags]);
+	const safePostTags = normalizeTags(...postInfo.tags);
+	postObject.setTags([downloadManage.getTagByFee(postInfo.feeRequired), ...safePostTags]);
 	downloadManage.addFee(postInfo.feeRequired);
-	downloadManage.addTags(...postInfo.tags);
+	downloadManage.addTags(...safePostTags);
 	const header: string = ((url: string | null) => {
 		if (url) {
 			const ext = url.split('.').pop() ?? '';
