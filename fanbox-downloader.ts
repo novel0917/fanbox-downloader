@@ -1,5 +1,7 @@
 import { DownloadHelper, DownloadObject, DownloadUtils } from 'download-helper';
 
+declare const BUILD_BRANCH: string;
+
 interface FanboxMetadata {
 	csrfToken?: string;
 	apiUrl?: string;
@@ -171,6 +173,7 @@ class DownloadManage {
  * メイン
  */
 export async function main() {
+	console.info(`[fanbox-downloader] build branch: ${BUILD_BRANCH}`);
 	let downloadObject: DownloadObject | undefined;
 	if (window.location.origin === 'https://downloads.fanbox.cc') {
 		await new DownloadHelper(DownloadManage.utils).createDownloadUI('fanbox-downloader');
@@ -309,8 +312,20 @@ type PostPageEntry = string | PostInfo | { url?: string };
  * @param url
  */
 async function addByPostListUrl(downloadManage: DownloadManage, url: string): Promise<void> {
+	const apiBaseUrl = new URL(getFanboxApiBaseUrl());
+	let apiUrl: URL;
+	try {
+		apiUrl = new URL(url, apiBaseUrl);
+	} catch {
+		console.warn('Skipping invalid FANBOX post list URL:', url);
+		return;
+	}
+	if (apiUrl.origin !== apiBaseUrl.origin || !apiUrl.pathname.endsWith('/post.listCreator')) {
+		console.warn('Skipping unsupported FANBOX post list URL:', url);
+		return;
+	}
 	const postList = toArray(
-		(await DownloadManage.utils.asyncHttpGetAs<{ body: PostInfo[] }>(url)).body,
+		(await DownloadManage.utils.asyncHttpGetAs<{ body: PostInfo[] }>(apiUrl.toString())).body,
 	);
 	await addByPostList(downloadManage, postList);
 }
