@@ -228,9 +228,10 @@ function toArray<T>(value: T | T[] | undefined | null): T[] {
 	if (value === undefined || value === null) return [];
 	if (Array.isArray(value)) return value;
 	if (typeof value === 'object' && value !== null) {
-		const wrapper = value as { body?: T[]; items?: T[] };
+		const wrapper = value as { body?: T[]; items?: T[]; posts?: T[] };
 		if (Array.isArray(wrapper.body)) return wrapper.body;
 		if (Array.isArray(wrapper.items)) return wrapper.items;
+		if (Array.isArray(wrapper.posts)) return wrapper.posts;
 	}
 	return [value as T];
 }
