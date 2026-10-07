@@ -10,7 +10,7 @@ pixiv FANBOXの投稿を投稿毎にフォルダ分け → ZIPとして一括ダ
 
 ↓ブックマークレット
 ```
-javascript:import("https://novel0917.github.io/fanbox-downloader/fanbox-downloader.min.js").then(m=>m.main()).catch(e=>alert(`エラー出た(${e})`));
+javascript:import("https://novel0917.github.io/fanbox-downloader/fanbox-downloader.min.js?v="+Date.now()).then(m=>m.main()).catch(e=>alert(`エラー出た(${e})`));
 ```
 
 ### 既知の問題
