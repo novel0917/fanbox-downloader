@@ -199,6 +199,18 @@ export async function main() {
 			document.location.href = 'https://downloads.fanbox.cc';
 		}
 	};
+	const copyAfterClick = async () => {
+		if (copyTextWithExecCommand(json)) {
+			jsonCopied();
+			return;
+		}
+		try {
+			await navigator.clipboard.writeText(json);
+			jsonCopied();
+		} catch {
+			alert('jsonコピーに失敗しました。コンソールのjsonをコピーしてください');
+		}
+	};
 	try {
 		await navigator.clipboard.writeText(json);
 		jsonCopied();
@@ -206,16 +218,31 @@ export async function main() {
 		document.body.addEventListener(
 			'click',
 			() => {
-				navigator.clipboard
-					.writeText(json)
-					.then(() => jsonCopied())
-					.catch(() =>
-						alert('jsonコピーに失敗しました。もう一度実行するかコンソールからコピーしてね'),
-					);
+				void copyAfterClick();
 			},
 			{ once: true },
 		);
 		alert('jsonコピーに失敗しました。画面の適当なとこをクリック！');
+	}
+}
+
+function copyTextWithExecCommand(text: string): boolean {
+	const textarea = document.createElement('textarea');
+	textarea.value = text;
+	textarea.setAttribute('readonly', '');
+	textarea.style.position = 'fixed';
+	textarea.style.left = '-9999px';
+	textarea.style.top = '0';
+	document.body.appendChild(textarea);
+	textarea.focus();
+	textarea.select();
+	textarea.setSelectionRange(0, textarea.value.length);
+	try {
+		return document.execCommand('copy');
+	} catch {
+		return false;
+	} finally {
+		textarea.remove();
 	}
 }
 
