@@ -226,12 +226,12 @@ export async function main() {
  */
 function toArray<T>(value: T | T[] | undefined | null): T[] {
 	if (value === undefined || value === null) return [];
-	if (Array.isArray(value)) return value;
+	if (Array.isArray(value)) return value.flatMap((item) => toArray(item));
 	if (typeof value === 'object' && value !== null) {
 		const wrapper = value as { body?: T[]; items?: T[]; posts?: T[] };
-		if (Array.isArray(wrapper.body)) return wrapper.body;
-		if (Array.isArray(wrapper.items)) return wrapper.items;
-		if (Array.isArray(wrapper.posts)) return wrapper.posts;
+		if (Array.isArray(wrapper.body)) return toArray(wrapper.body);
+		if (Array.isArray(wrapper.items)) return toArray(wrapper.items);
+		if (Array.isArray(wrapper.posts)) return toArray(wrapper.posts);
 	}
 	return [value as T];
 }
@@ -352,8 +352,13 @@ async function addByPostList(downloadManage: DownloadManage, postList: PostInfo[
 			if (post.body) {
 				addByPostInfo(downloadManage, post);
 			} else if (!post.isRestricted) {
+				const postId: unknown = post.id;
+				if (typeof postId !== 'string' || postId === '') {
+					console.warn('Skipping FANBOX post without id:', post);
+					continue;
+				}
 				await DownloadManage.utils.sleep(2000);
-				const postInfo = await getPostInfoById(post.id);
+				const postInfo = await getPostInfoById(postId);
 				addByPostInfo(downloadManage, postInfo);
 			}
 		} else {
