@@ -372,11 +372,40 @@ async function addByPostList(downloadManage: DownloadManage, postList: PostInfo[
  * @param postId 投稿ID
  */
 async function getPostInfoById(postId: string): Promise<PostInfo | undefined> {
-	return (
-		await DownloadManage.utils.asyncHttpGetAs<{ body?: PostInfo }>(
-			`${getFanboxApiBaseUrl()}/post.info?postId=${postId}`,
-		)
-	).body;
+	const response = await DownloadManage.utils.asyncHttpGetAs<unknown>(
+		`${getFanboxApiBaseUrl()}/post.info?postId=${postId}`,
+	);
+	const postInfo = findPostInfo(response);
+	if (!postInfo) {
+		console.warn('Unsupported FANBOX post.info response shape');
+	}
+	return postInfo;
+}
+
+function findPostInfo(value: unknown): PostInfo | undefined {
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			const postInfo = findPostInfo(item);
+			if (postInfo) return postInfo;
+		}
+		return undefined;
+	}
+	if (typeof value !== 'object' || value === null) return undefined;
+	const candidate = value as Record<string, unknown>;
+	if (
+		typeof candidate.id === 'string' &&
+		typeof candidate.title === 'string' &&
+		typeof candidate.creatorId === 'string' &&
+		typeof candidate.feeRequired === 'number' &&
+		typeof candidate.type === 'string'
+	) {
+		return candidate as PostInfo;
+	}
+	for (const nestedValue of Object.values(candidate)) {
+		const postInfo = findPostInfo(nestedValue);
+		if (postInfo) return postInfo;
+	}
+	return undefined;
 }
 
 /**
