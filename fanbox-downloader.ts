@@ -284,10 +284,14 @@ async function getItemsById(downloadManage: DownloadManage) {
 			downloadManage.setLimit(limit);
 		}
 	}
-	const response = await DownloadManage.utils.asyncHttpGetAs<{ body: PostPageEntry[] }>(
-		`${getFanboxApiBaseUrl()}/post.paginateCreator?creatorId=${downloadManage.userId}`,
-	);
-	const entries = toArray(response.body);
+	const response = await DownloadManage.utils.asyncHttpGetAs<{
+		body: PostPageEntry[] | { pageUrls: string[] };
+	}>(`${getFanboxApiBaseUrl()}/post.paginateCreator?creatorId=${downloadManage.userId}`);
+	const entries = Array.isArray(response.body)
+		? response.body
+		: 'pageUrls' in response.body && Array.isArray(response.body.pageUrls)
+		? response.body.pageUrls
+		: [];
 	for (let i = 0; i < entries.length; i++) {
 		console.log(`${i + 1}回目`);
 		const entry = entries[i];
