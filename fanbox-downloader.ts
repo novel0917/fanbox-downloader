@@ -1,5 +1,7 @@
 import { DownloadHelper, DownloadObject, DownloadUtils } from 'download-helper';
 
+declare const BUILD_BRANCH: string;
+
 interface FanboxMetadata {
 	csrfToken?: string;
 	apiUrl?: string;
@@ -41,7 +43,10 @@ function normalizeTags(...tags: Array<string | null | undefined>): string[] {
 }
 
 class FanboxDownloadUtils extends DownloadUtils {
-	async asyncHttpGetAs<T = unknown>(url: string, retries: number = 3): Promise<T> {
+	async asyncHttpGetAs<T = unknown>(url: string, retries = 3): Promise<T> {
+		if (typeof url !== 'string' || url.trim() === '') {
+			throw new TypeError('Request URL must be a non-empty string');
+		}
 		for (let attempt = 0; attempt < retries; attempt++) {
 			try {
 				const response = await fetch(url, {
@@ -57,9 +62,11 @@ class FanboxDownloadUtils extends DownloadUtils {
 				if (!response.ok) {
 					throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 				}
-				const result = await response.json();
+				const result: unknown = await response.json();
 				if (typeof result === 'object' && result !== null && 'error' in result) {
-					throw new Error(`Fanbox API error: ${JSON.stringify((result as Record<string, unknown>).error)}`);
+					throw new Error(
+						`Fanbox API error: ${JSON.stringify((result as Record<string, unknown>).error)}`,
+					);
 				}
 				return result as T;
 			} catch (error) {
@@ -166,6 +173,7 @@ class DownloadManage {
  * メイン
  */
 export async function main() {
+	console.info(`[fanbox-downloader] build branch: ${BUILD_BRANCH}`);
 	let downloadObject: DownloadObject | undefined;
 	if (window.location.origin === 'https://downloads.fanbox.cc') {
 		await new DownloadHelper(DownloadManage.utils).createDownloadUI('fanbox-downloader');
@@ -218,11 +226,12 @@ export async function main() {
  */
 function toArray<T>(value: T | T[] | undefined | null): T[] {
 	if (value === undefined || value === null) return [];
-	if (Array.isArray(value)) return value;
+	if (Array.isArray(value)) return value.flatMap((item) => toArray(item));
 	if (typeof value === 'object' && value !== null) {
-		const wrapper = value as { body?: T[]; items?: T[] };
-		if (Array.isArray(wrapper.body)) return wrapper.body;
-		if (Array.isArray(wrapper.items)) return wrapper.items;
+		const wrapper = value as { body?: T[]; items?: T[]; posts?: T[] };
+		if (Array.isArray(wrapper.body)) return toArray(wrapper.body);
+		if (Array.isArray(wrapper.items)) return toArray(wrapper.items);
+		if (Array.isArray(wrapper.posts)) return toArray(wrapper.posts);
 	}
 	return [value as T];
 }
@@ -236,18 +245,22 @@ async function searchBy(
 		return;
 	}
 	const plans = toArray(
-		(await DownloadManage.utils.asyncHttpGetAs<Plans>(
-			`${getFanboxApiBaseUrl()}/plan.listCreator?creatorId=${creatorId}`,
-		)).body,
+		(
+			await DownloadManage.utils.asyncHttpGetAs<Plans>(
+				`${getFanboxApiBaseUrl()}/plan.listCreator?creatorId=${creatorId}`,
+			)
+		).body,
 	);
 	const feeMapper = new Map<number, string>();
 	plans.forEach((plan) => feeMapper.set(plan.fee, plan.title));
 	const downloadSettings = new DownloadManage(creatorId, feeMapper);
 	downloadSettings.downloadObject.setUrl(`https://www.fanbox.cc/@${creatorId}`);
 	const definedTags = toArray(
-		(await DownloadManage.utils.asyncHttpGetAs<Tags>(
-			`${getFanboxApiBaseUrl()}/tag.getFeatured?creatorId=${creatorId}`,
-		)).body,
+		(
+			await DownloadManage.utils.asyncHttpGetAs<Tags>(
+				`${getFanboxApiBaseUrl()}/tag.getFeatured?creatorId=${creatorId}`,
+			)
+		).body,
 	)
 		.map((tag) => tag.tag)
 		.filter((tag): tag is string => typeof tag === 'string');
@@ -272,16 +285,40 @@ async function getItemsById(downloadManage: DownloadManage) {
 			downloadManage.setLimit(limit);
 		}
 	}
-	const urls = toArray(
-		(await DownloadManage.utils.asyncHttpGetAs<{ body: string[] }>(
-			`${getFanboxApiBaseUrl()}/post.paginateCreator?creatorId=${downloadManage.userId}`,
-		)).body,
+	const response = await DownloadManage.utils.asyncHttpGetAs<{
+		body: PostPaginationEntry[] | { pageUrls: string[] };
+	}>(`${getFanboxApiBaseUrl()}/post.paginateCreator?creatorId=${downloadManage.userId}`);
+	const pageEntries = Array.isArray(response.body) ? response.body : [response.body];
+	const entries = pageEntries.flatMap((entry) =>
+		isPageUrlsEntry(entry) ? entry.pageUrls : [entry],
 	);
-	for (let i = 0; i < urls.length; i++) {
+	for (let i = 0; i < entries.length; i++) {
 		console.log(`${i + 1}回目`);
-		await addByPostListUrl(downloadManage, urls[i]);
+		const entry = entries[i];
+		if (typeof entry === 'string') {
+			await addByPostListUrl(downloadManage, entry);
+		} else if ('url' in entry && typeof entry.url === 'string') {
+			await addByPostListUrl(downloadManage, entry.url);
+		} else if ('id' in entry && typeof entry.id === 'string') {
+			await addByPostList(downloadManage, [entry]);
+		} else {
+			console.warn('Unsupported FANBOX post pagination entry:', entry);
+		}
 		await DownloadManage.utils.sleep(2000);
 	}
+}
+
+type PostPageEntry = string | PostInfo | { url?: string };
+type PostPaginationEntry = PostPageEntry | { pageUrls: string[] };
+
+function isPageUrlsEntry(entry: PostPaginationEntry): entry is { pageUrls: string[] } {
+	return (
+		typeof entry === 'object' &&
+		entry !== null &&
+		'pageUrls' in entry &&
+		Array.isArray(entry.pageUrls) &&
+		entry.pageUrls.every((url) => typeof url === 'string')
+	);
 }
 
 /**
@@ -290,18 +327,43 @@ async function getItemsById(downloadManage: DownloadManage) {
  * @param url
  */
 async function addByPostListUrl(downloadManage: DownloadManage, url: string): Promise<void> {
-	const postList = toArray((await DownloadManage.utils.asyncHttpGetAs<{ body: PostInfo[] }>(url)).body);
+	const apiBaseUrl = new URL(getFanboxApiBaseUrl());
+	let apiUrl: URL;
+	try {
+		apiUrl = new URL(url, apiBaseUrl);
+	} catch {
+		console.warn('Skipping invalid FANBOX post list URL:', url);
+		return;
+	}
+	if (apiUrl.origin !== apiBaseUrl.origin || !apiUrl.pathname.endsWith('/post.listCreator')) {
+		console.warn('Skipping unsupported FANBOX post list URL:', url);
+		return;
+	}
+	const postList = toArray(
+		(await DownloadManage.utils.asyncHttpGetAs<{ body: PostInfo[] }>(apiUrl.toString())).body,
+	);
+	await addByPostList(downloadManage, postList);
+}
+
+async function addByPostList(downloadManage: DownloadManage, postList: PostInfo[]): Promise<void> {
 	console.log(`投稿の数:${postList.length}`);
 	for (const post of postList) {
 		if (downloadManage.isLimitValid()) {
 			if (post.body) {
 				addByPostInfo(downloadManage, post);
 			} else if (!post.isRestricted) {
+				const postId: unknown = post.id;
+				if (typeof postId !== 'string' || postId === '') {
+					console.warn('Skipping FANBOX post without id:', post);
+					continue;
+				}
 				await DownloadManage.utils.sleep(2000);
-				const postInfo = await getPostInfoById(post.id);
+				const postInfo = await getPostInfoById(postId);
 				addByPostInfo(downloadManage, postInfo);
 			}
-		} else break;
+		} else {
+			break;
+		}
 	}
 }
 
@@ -310,9 +372,40 @@ async function addByPostListUrl(downloadManage: DownloadManage, url: string): Pr
  * @param postId 投稿ID
  */
 async function getPostInfoById(postId: string): Promise<PostInfo | undefined> {
-	return (await DownloadManage.utils.asyncHttpGetAs<{ body?: PostInfo }>(
+	const response = await DownloadManage.utils.asyncHttpGetAs<unknown>(
 		`${getFanboxApiBaseUrl()}/post.info?postId=${postId}`,
-	)).body;
+	);
+	const postInfo = findPostInfo(response);
+	if (!postInfo) {
+		console.warn('Unsupported FANBOX post.info response shape');
+	}
+	return postInfo;
+}
+
+function findPostInfo(value: unknown): PostInfo | undefined {
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			const postInfo = findPostInfo(item);
+			if (postInfo) return postInfo;
+		}
+		return undefined;
+	}
+	if (typeof value !== 'object' || value === null) return undefined;
+	const candidate = value as Record<string, unknown>;
+	if (
+		typeof candidate.id === 'string' &&
+		typeof candidate.title === 'string' &&
+		typeof candidate.creatorId === 'string' &&
+		typeof candidate.feeRequired === 'number' &&
+		typeof candidate.type === 'string'
+	) {
+		return candidate as PostInfo;
+	}
+	for (const nestedValue of Object.values(candidate)) {
+		const postInfo = findPostInfo(nestedValue);
+		if (postInfo) return postInfo;
+	}
+	return undefined;
 }
 
 /**
