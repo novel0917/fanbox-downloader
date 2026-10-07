@@ -285,13 +285,12 @@ async function getItemsById(downloadManage: DownloadManage) {
 		}
 	}
 	const response = await DownloadManage.utils.asyncHttpGetAs<{
-		body: PostPageEntry[] | { pageUrls: string[] };
+		body: PostPaginationEntry[] | { pageUrls: string[] };
 	}>(`${getFanboxApiBaseUrl()}/post.paginateCreator?creatorId=${downloadManage.userId}`);
-	const entries = Array.isArray(response.body)
-		? response.body
-		: 'pageUrls' in response.body && Array.isArray(response.body.pageUrls)
-		? response.body.pageUrls
-		: [];
+	const pageEntries = Array.isArray(response.body) ? response.body : [response.body];
+	const entries = pageEntries.flatMap((entry) =>
+		isPageUrlsEntry(entry) ? entry.pageUrls : [entry],
+	);
 	for (let i = 0; i < entries.length; i++) {
 		console.log(`${i + 1}回目`);
 		const entry = entries[i];
@@ -309,6 +308,17 @@ async function getItemsById(downloadManage: DownloadManage) {
 }
 
 type PostPageEntry = string | PostInfo | { url?: string };
+type PostPaginationEntry = PostPageEntry | { pageUrls: string[] };
+
+function isPageUrlsEntry(entry: PostPaginationEntry): entry is { pageUrls: string[] } {
+	return (
+		typeof entry === 'object' &&
+		entry !== null &&
+		'pageUrls' in entry &&
+		Array.isArray(entry.pageUrls) &&
+		entry.pageUrls.every((url) => typeof url === 'string')
+	);
+}
 
 /**
  * 投稿リストURLからURLリストに追加
